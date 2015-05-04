@@ -1,5 +1,5 @@
 import math
-from osgeo import ogr, osr
+from osgeo import ogr, osr, gdal
 import tempfile
 import subprocess
 import uuid
@@ -16,7 +16,8 @@ def degree_to_tile_number(lat_deg, lon_deg, zoom):
     lat_rad = math.radians(lat_deg)
     n = 2.0 ** zoom
     x = int((lon_deg + 180.0) / 360.0 * n)
-    y = int((1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2.0 * n)
+    y = int((1.0 - math.log(
+        math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2.0 * n)
     return x, y
 
 
@@ -43,7 +44,8 @@ def tile_bounds(x, y, zoom):
     :param zoom: integer 0-21
     :return: Tuple of tuples
     """
-    return tile_number_to_degree(x, y, zoom), tile_number_to_degree(x + 1, y + 1, zoom)
+    return tile_number_to_degree(x, y, zoom), tile_number_to_degree(x + 1,
+                                                                    y + 1, zoom)
 
 
 def project_point(x, y, s_srs=4326, t_srs=3857):
@@ -78,11 +80,18 @@ def convert_tile_geotiff(fn_in, fn_out, x, y, zoom, t_srs="EPSG:4326"):
     fn_tmp = tempfile.gettempdir() + '/' + str(uuid.uuid4()) + '.tif'
 
     # from png create geotiff in epsg:3857
-    translate = 'gdal_translate %s %s -a_srs %s -a_ullr %f %f %f %f' % (
-        fn_in, fn_tmp, 'EPSG:3857', s_bounds[0][0], s_bounds[0][1], s_bounds[1][0],
+    translate = 'gdal_translate %s %s -a_srs %s -a_ullr %f %f %f %f -q' % (
+        fn_in, fn_tmp, 'EPSG:3857', s_bounds[0][0], s_bounds[0][1],
+        s_bounds[1][0],
         s_bounds[1][1] )
     subprocess.call(translate, shell=True)
-    
+
+    tif = gdal.Open(fn_tmp)
+    noData= int(tif.GetRasterBand(1).GetNoDataValue())
+    calc = 'python ../lib/gdal_calc.py -A %s --calc="%d!=A" --outfile=%s --NoDataValue=0 --overwrite' % (
+        fn_tmp, noData, fn_tmp)
+    subprocess.call(calc, shell=True)
+
     # project geotiff to epsg:4326
-    warp = 'gdalwarp -s_srs EPSG:3857 -t_srs %s %s %s' % (t_srs, fn_tmp, fn_out)
+    warp = 'gdalwarp -s_srs EPSG:3857 -t_srs %s %s %s -q' % (t_srs, fn_tmp, fn_out)
     subprocess.call(warp, shell=True)
